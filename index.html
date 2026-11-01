@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Highway Kick</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div class="hud-box">SPEED <span id="speed">0</span> km/h</div>
+    <div class="hud-box">KO <span id="kos">0</span></div>
+    <div class="hud-box">DIST <span id="dist">0.0</span> km</div>
+  </div>
+  <div id="toast"></div>
+
+  <!-- Controls -->
+  <div id="controls">
+    <button class="ctl steer" id="btnLeft" aria-label="Left">&#9664;</button>
+    <div class="mid">
+      <button class="ctl action horn" id="btnHorn">HORN</button>
+      <button class="ctl action kick" id="btnKick">KICK</button>
+    </div>
+    <button class="ctl steer" id="btnRight" aria-label="Right">&#9654;</button>
+  </div>
+
+  <!-- Start screen -->
+  <div id="overlay">
+    <h1>HIGHWAY KICK</h1>
+    <p>Hold &#9664; &#9654; to steer. Ride beside a rival and hit KICK.<br>Three kicks and they go down.</p>
+    <p class="keys">Keyboard: Arrow keys steer, H = horn, Space = kick</p>
+    <button id="btnStart">START</button>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>

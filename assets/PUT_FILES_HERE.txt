@@ -1,0 +1,8 @@
+Drop these files into this assets folder (names must match exactly):
+
+  face.png   your friend's face (face.jpg also works). Square crop, face centred.
+  horn.mp3   plays when HORN is pressed
+  kick.mp3   plays on every kick that lands (optional)
+  fall.mp3   plays when a rival falls after 3 kicks
+
+Any missing file is skipped, so the game still runs without it.
