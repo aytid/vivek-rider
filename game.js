@@ -30,38 +30,212 @@
     displayTopKmh: 180,
   };
 
-  // ---------- Assets ----------
-  const sounds = {};
-  function loadSound(name, file) {
-    const a = new Audio();
-    a.preload = "auto";
-    a.src = file;
-    a.addEventListener("error", () => { sounds[name] = null; });
-    sounds[name] = a;
+  // ---------- Sound ----------
+  // Every sound plays the file from /assets. Three layers keep it reliable:
+  //   1. Web Audio buffer   (used when the game is served over http/https: instant, works on iPhone)
+  //   2. <audio> element    (used when opened straight from a folder / file://)
+  //   3. built-in synth     (only if a file is missing or the browser refuses it)
+  // A sound that is triggered again restarts from the beginning instead of piling up.
+  const SOUND_FILES = { horn: "assets/horn.mp3", kick: "assets/kick.mp3", fall: "assets/fall.mp3" };
+  const SOUND_MAX_SECONDS = { horn: 0, kick: 0, fall: 0 };   // 0 = play the whole file; e.g. kick: 1.5 cuts it short
+  const sfx = {};
+  let actx = null;
+  let noiseBuf = null;
+
+  function getCtx() {
+    if (actx) return actx;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) actx = new AC();
+    } catch (e) { actx = null; }
+    return actx;
   }
-  loadSound("horn", "assets/horn.mp3");
-  loadSound("kick", "assets/kick.mp3");
-  loadSound("fall", "assets/fall.mp3");
+
+  function loadSound(name, file) {
+    const s = (sfx[name] = { el: null, elFailed: false, buffer: null, voice: null, used: false });
+    try {
+      const a = new Audio();
+      a.preload = "auto";
+      a.addEventListener("error", () => { s.elFailed = true; });
+      a.src = file;
+      s.el = a;
+    } catch (e) { s.elFailed = true; }
+    // Decoding needs fetch(), which browsers only allow over http/https (not file://).
+    if (location.protocol !== "file:" && window.fetch) {
+      fetch(file)
+        .then((r) => { if (!r.ok) throw new Error("missing"); return r.arrayBuffer(); })
+        .then((data) => new Promise((res, rej) => {
+          const c = getCtx();
+          if (!c) return rej(new Error("no audio context"));
+          c.decodeAudioData(data, res, rej);
+        }))
+        .then((buf) => { s.buffer = buf; })
+        .catch(() => { /* fall back to the <audio> element */ });
+    }
+  }
+  Object.keys(SOUND_FILES).forEach((n) => loadSound(n, SOUND_FILES[n]));
+
+  // Call from a real tap/click so mobile browsers allow sound afterwards.
+  function unlockAudio() {
+    const c = getCtx();
+    if (c) {
+      try {
+        if (c.state === "suspended") c.resume();
+        const src = c.createBufferSource();
+        src.buffer = c.createBuffer(1, 1, 22050);
+        src.connect(c.destination);
+        src.start(0);
+      } catch (e) { /* ignore */ }
+    }
+    Object.values(sfx).forEach((s) => {
+      const a = s.el;
+      if (!a || s.elFailed) return;
+      s.used = false;
+      a.muted = true;
+      let p;
+      try { p = a.play(); } catch (e) { a.muted = false; return; }
+      if (p && p.then) {
+        p.then(() => { if (!s.used) { a.pause(); a.currentTime = 0; } a.muted = false; })
+         .catch(() => { a.muted = false; });
+      } else { a.muted = false; }
+    });
+  }
+
+  function stopVoice(s) {
+    if (s.voice) { try { s.voice.stop(); } catch (e) { /* already stopped */ } s.voice = null; }
+  }
 
   function play(name) {
-    const base = sounds[name];
-    if (!base) return;
-    try {
-      const c = base.cloneNode(); // clone so rapid presses overlap
-      c.play().catch(() => {});
-    } catch (e) { /* ignore */ }
+    const s = sfx[name];
+    if (!s) return;
+    const maxSec = SOUND_MAX_SECONDS[name] || 0;
+
+    if (s.buffer && actx) {                                  // 1. Web Audio
+      try {
+        if (actx.state === "suspended") actx.resume();
+        stopVoice(s);
+        const src = actx.createBufferSource();
+        src.buffer = s.buffer;
+        src.connect(actx.destination);
+        src.start();
+        if (maxSec > 0) src.stop(actx.currentTime + maxSec);
+        s.voice = src;
+        return;
+      } catch (e) { /* try next layer */ }
+    }
+
+    if (s.el && !s.elFailed) {                               // 2. <audio> element from the assets folder
+      try {
+        s.used = true;
+        s.el.muted = false;
+        s.el.currentTime = 0;
+        const p = s.el.play();
+        if (p && p.catch) p.catch(() => synth(name));
+        if (maxSec > 0) {
+          clearTimeout(s.cutTimer);
+          s.cutTimer = setTimeout(() => { try { s.el.pause(); } catch (e) { /* ignore */ } }, maxSec * 1000);
+        }
+        return;
+      } catch (e) { /* try next layer */ }
+    }
+    synth(name);                                             // 3. built-in fallback
   }
 
+  function tone(freq, endFreq, dur, type, gain, delay) {
+    const c = getCtx();
+    if (!c) return;
+    try {
+      if (c.state === "suspended") c.resume();
+      const t = c.currentTime + (delay || 0);
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, t);
+      o.frequency.exponentialRampToValueAtTime(Math.max(1, endFreq), t + dur);
+      g.gain.setValueAtTime(gain, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      o.connect(g); g.connect(c.destination);
+      o.start(t); o.stop(t + dur + 0.02);
+    } catch (e) { /* ignore */ }
+  }
+  function noise(dur, gain, cutoff, delay) {
+    const c = getCtx();
+    if (!c) return;
+    try {
+      if (!noiseBuf) {
+        noiseBuf = c.createBuffer(1, c.sampleRate, c.sampleRate);
+        const d = noiseBuf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      }
+      const t = c.currentTime + (delay || 0);
+      const src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+      src.buffer = noiseBuf; f.type = "lowpass"; f.frequency.value = cutoff;
+      g.gain.setValueAtTime(gain, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      src.connect(f); f.connect(g); g.connect(c.destination);
+      src.start(t); src.stop(t + dur + 0.02);
+    } catch (e) { /* ignore */ }
+  }
+  function synth(name) {
+    if (name === "kick") { noise(0.12, 0.6, 1400); tone(170, 45, 0.2, "sine", 0.8); }
+    else if (name === "horn") { [0, 0.3].forEach((d) => { tone(392, 392, 0.22, "square", 0.12, d); tone(494, 494, 0.22, "square", 0.1, d); }); }
+    else if (name === "fall") { tone(320, 55, 0.6, "sawtooth", 0.22); noise(0.5, 0.5, 700, 0.05); }
+  }
+
+  // ---------- Friend's face ----------
+  // Tries assets/face.png, then .jpg / .jpeg / .webp. A broken or placeholder file is skipped automatically.
+  const FACE_FILES = ["assets/face.png", "assets/face.jpg", "assets/face.jpeg", "assets/face.webp"];
   const face = new Image();
   let faceReady = false;
-  face.onload = () => { faceReady = true; };
-  face.onerror = () => {
-    if (!face.dataset.triedJpg) {
-      face.dataset.triedJpg = "1";
-      face.src = "assets/face.jpg";
+  let faceObjectUrl = null;
+  let faceTry = 0;
+  const assetStatus = document.getElementById("assetStatus");
+  face.onload = () => {
+    if (face.naturalWidth > 1 && face.naturalHeight > 1) {
+      faceReady = true;
+      if (assetStatus) assetStatus.textContent = "Friend's face loaded ✓";
+    } else {
+      face.onerror();
     }
   };
-  face.src = "assets/face.png";
+  face.onerror = () => {
+    faceReady = false;
+    if (faceObjectUrl && face.src === faceObjectUrl) {
+      if (assetStatus) assetStatus.textContent = "That photo could not be read. Try another image.";
+      return;
+    }
+    faceTry++;
+    if (faceTry < FACE_FILES.length) face.src = FACE_FILES[faceTry];
+    else if (assetStatus) assetStatus.textContent = "No face photo found. Add one below, or put face.png in the assets folder.";
+  };
+  face.src = FACE_FILES[0];
+
+  // Optional: pick a face photo / music file right in the game (start screen).
+  const faceUpload = document.getElementById("faceUpload");
+  if (faceUpload) faceUpload.addEventListener("change", (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (faceObjectUrl) URL.revokeObjectURL(faceObjectUrl);
+    faceObjectUrl = URL.createObjectURL(file);
+    faceReady = false;
+    face.src = faceObjectUrl;
+    if (assetStatus) assetStatus.textContent = "Loading face photo…";
+  });
+
+  let customMusic = null;
+  let musicObjectUrl = null;
+  const audioUpload = document.getElementById("audioUpload");
+  if (audioUpload) audioUpload.addEventListener("change", (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (musicObjectUrl) URL.revokeObjectURL(musicObjectUrl);
+    musicObjectUrl = URL.createObjectURL(file);
+    if (customMusic) { customMusic.pause(); customMusic = null; }
+    customMusic = new Audio(musicObjectUrl);
+    customMusic.loop = true;
+    customMusic.volume = 0.7;
+    customMusic.preload = "auto";
+    if (assetStatus) assetStatus.textContent = "Music loaded ✓ It plays when you press START";
+  });
 
   // ---------- Canvas ----------
   const canvas = document.getElementById("game");
@@ -167,7 +341,7 @@
     if (e.repeat && (e.code === "Space" || e.code === "KeyH")) return;
     if (e.code === "ArrowLeft" || e.code === "KeyA") held.left = true;
     if (e.code === "ArrowRight" || e.code === "KeyD") held.right = true;
-    if (e.code === "Space") { e.preventDefault(); kick(); }
+    if (e.code === "Space" || e.code === "KeyK") { e.preventDefault(); kick(); }
     if (e.code === "KeyH") horn();
   });
   window.addEventListener("keyup", (e) => {
@@ -175,17 +349,20 @@
     if (e.code === "ArrowRight" || e.code === "KeyD") held.right = false;
   });
 
+  window.addEventListener("blur", () => { held.left = false; held.right = false; });
+
   const overlay = document.getElementById("overlay");
   document.getElementById("btnStart").addEventListener("click", () => {
-    // Unlock audio on mobile by touching each sound once inside the tap
-    Object.values(sounds).forEach((a) => {
-      if (!a) return;
-      a.muted = true;
-      a.play().then(() => { a.pause(); a.currentTime = 0; a.muted = false; }).catch(() => { a.muted = false; });
-    });
+    unlockAudio();   // lets phones play the sounds from now on
     overlay.classList.add("hidden");
     reset();
     running = true;
+    if (customMusic) {
+      customMusic.currentTime = 0;
+      customMusic.play().catch(() => {
+        if (assetStatus) assetStatus.textContent = "Tap START again to enable audio";
+      });
+    }
   });
 
   // ---------- Actions ----------
@@ -214,6 +391,7 @@
   function kick() {
     if (!running || player.kickCd > 0) return;
     player.kickCd = CFG.kickCooldown;
+    play("kick");                       // the kick sound plays on every kick, hit or miss
 
     // Nearest rival riding beside you
     let target = null, best = Infinity;
@@ -238,7 +416,6 @@
     target.x += player.kickSide * 0.12;
     target.tx = target.x;
     shake = 0.15;
-    play("kick");
 
     if (target.hits >= CFG.kicksToDrop) {
       target.state = "fallen";
@@ -566,20 +743,19 @@
 
     // head
     if (o.face && faceReady) {
-      const r = 21;
+      const r = 25, cy = -127;
       ctx.save();
-      ctx.beginPath();
-      ctx.arc(0, -124, r, 0, Math.PI * 2);
-      ctx.closePath();
+      ctx.beginPath(); ctx.arc(0, cy, r, 0, Math.PI * 2); ctx.closePath();
+      ctx.fillStyle = "#cfe3ff"; ctx.fill();            // backdrop so cut-out photos look neat
       ctx.clip();
-      // cover-fit the photo into the circle
+      // cover-fit the photo into the circle (keeps proportions)
       const iw = face.naturalWidth, ih = face.naturalHeight;
       const sc = (r * 2) / Math.min(iw, ih);
-      ctx.drawImage(face, -iw * sc / 2, -124 - ih * sc / 2, iw * sc, ih * sc);
+      ctx.drawImage(face, -iw * sc / 2, cy - ih * sc / 2, iw * sc, ih * sc);
       ctx.restore();
       ctx.strokeStyle = "#fff";
-      lw(3);
-      ctx.beginPath(); ctx.arc(0, -124, 21, 0, Math.PI * 2); ctx.stroke();
+      lw(3.5);
+      ctx.beginPath(); ctx.arc(0, cy, r, 0, Math.PI * 2); ctx.stroke();
     } else {
       ctx.fillStyle = o.helmet;
       ctx.beginPath(); ctx.arc(0, -120, 17, 0, Math.PI * 2); ctx.fill();

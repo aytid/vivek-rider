@@ -1,8 +1,13 @@
-Drop these files into this assets folder (names must match exactly):
+Game files in this folder (names must match exactly):
 
-  face.png   your friend's face (face.jpg also works). Square crop, face centred.
-  horn.mp3   plays when HORN is pressed
-  kick.mp3   plays on every kick that lands (optional)
-  fall.mp3   plays when a rival falls after 3 kicks
+  face.png    your friend's face. Square-ish crop, face centred. A transparent PNG looks best.
+              (face.jpg / face.jpeg / face.webp also work.)  Must be a real image file.
+  kick.mp3    plays on EVERY kick (hit or miss). Restarts if you kick again.
+  horn.mp3    plays when HORN is pressed.
+  fall.mp3    plays when a rival is knocked down after 3 kicks.
 
-Any missing file is skipped, so the game still runs without it.
+If a file is missing or broken, the game uses a built-in face placeholder (helmet) and
+built-in synthesized sounds, so it always keeps working.
+
+To make a long sound shorter without editing the file, open game.js and set
+SOUND_MAX_SECONDS, e.g. kick: 1.5

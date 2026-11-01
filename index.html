@@ -27,12 +27,18 @@
     <button class="ctl steer" id="btnRight" aria-label="Right">&#9654;</button>
   </div>
 
-  <!-- Start screen -->
   <div id="overlay">
     <h1>HIGHWAY KICK</h1>
     <p>Hold &#9664; &#9654; to steer. Ride beside a rival and hit KICK.<br>Three kicks and they go down.</p>
-    <p class="keys">Keyboard: Arrow keys steer, H = horn, Space = kick</p>
+    <p class="keys">Keyboard: Arrow keys steer, H = horn, Space or K = kick</p>
     <button id="btnStart">START</button>
+
+    <details id="assetPanel">
+      <summary>Use a different face photo or music</summary>
+      <label class="asset-btn">📷 Choose friend's face<input id="faceUpload" type="file" accept="image/*"></label>
+      <label class="asset-btn">♫ Choose background music<input id="audioUpload" type="file" accept="audio/*"></label>
+      <span id="assetStatus"></span>
+    </details>
   </div>
 
   <script src="game.js"></script>
