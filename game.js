@@ -742,42 +742,29 @@
     ctx.beginPath(); ctx.arc(-31, -74, 5, 0, Math.PI * 2); ctx.arc(31, -74, 5, 0, Math.PI * 2); ctx.fill();
 
     // head
-// Head: friend's photo fitted naturally to the rider
 if (o.face && faceReady) {
-  const headX = 0;
-  const headY = -123;
-  const radius = 16;
+  const r = 21;
 
   ctx.save();
-
-  // Circular crop
   ctx.beginPath();
-  ctx.arc(headX, headY, radius, 0, Math.PI * 2);
+  ctx.arc(0, -124, r, 0, Math.PI * 2);
+  ctx.closePath();
   ctx.clip();
 
-  // Crop photo to fill the head
   const iw = face.naturalWidth;
   const ih = face.naturalHeight;
-  const scale = (radius * 2) / Math.min(iw, ih);
+  const sc = (r * 2) / Math.min(iw, ih);
 
   ctx.drawImage(
     face,
-    headX - (iw * scale) / 2,
-    headY - (ih * scale) / 2,
-    iw * scale,
-    ih * scale
+    -iw * sc / 2,
+    -124 - ih * sc / 2,
+    iw * sc,
+    ih * sc
   );
 
   ctx.restore();
-
-  // Thin border
-  ctx.strokeStyle = "#e8e8e8";
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.arc(headX, headY, radius, 0, Math.PI * 2);
-  ctx.stroke();
 } else {
-  // Default helmet for other riders
   ctx.fillStyle = o.helmet;
   ctx.beginPath();
   ctx.arc(0, -120, 17, 0, Math.PI * 2);
